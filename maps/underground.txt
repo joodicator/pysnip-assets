@@ -1,0 +1,96 @@
+name = 'Underground'
+version = '1.0'
+author = 'joo'
+description = 'All solid blocks except for two starting chambers.'
+
+BASE_W, BASE_H = 10, 8
+BASE_T, BASE_B = 32-BASE_H/2, 32+BASE_H/2
+BASE_LOC = (160, 256, BASE_B), (352, 256, BASE_B)
+INTEL_W, INTEL_H = 128, 48
+
+def gen_script(basename, seed):
+    import itertools, pyspades.vxl
+
+    vxl = pyspades.vxl.VXLData()
+    for x, y in itertools.product(xrange(512), xrange(512)):
+        d = min(x, y, 511-x, 511-y, 8)
+        edge_colour = pyspades.vxl.make_color(4*d, 4*d, 5*d)
+
+        if min(x, y) == 0 or max(x, y) == 511:
+            # On the horizontal edge of the map.
+            vxl.set_column_fast(
+                x, y, z_start=0, z_end=63, z_color_end=63, color=edge_colour)
+        elif any(-BASE_W/2 <= min(x-x0,y-y0) and max(x-x0,y-y0) < BASE_W/2
+        for (x0,y0,z0) in BASE_LOC):
+            # Inside the column of a starting chamber.
+            vxl.set_column_fast(
+                x, y, z_start=0, z_end=BASE_T-1, z_color_end=0, color=edge_colour)
+            vxl.set_column_fast(
+                x, y, z_start=BASE_B, z_end=63, z_color_end=0, color=0)
+            vxl.set_column_fast(
+                x, y, z_start=63, z_end=63, z_color_end=63, color=edge_colour)
+        else:
+            vxl.set_column_fast(
+                x, y, z_start=0, z_end=63, z_color_end=0, color=edge_colour)
+            vxl.set_column_fast(
+                x, y, z_start=63, z_end=63, z_color_end=63, color=edge_colour)
+
+    return vxl
+
+def get_entity_location(team, entity_id):
+    from pyspades.constants import BLUE_BASE, GREEN_BASE, BLUE_FLAG, GREEN_FLAG
+    if entity_id == (BLUE_BASE, GREEN_BASE)[team.id]:
+        return BASE_LOC[team.id]
+    if entity_id == (BLUE_FLAG, GREEN_FLAG)[team.id]:
+        return get_intel_location(team.protocol, team.id)
+       
+def get_spawn_location(connection):
+    import random
+    team_id = connection.team.id if connection.team.id in (0, 1) else \
+              random.choice((0, 1))
+    x0, y0, z0 = BASE_LOC[team_id]
+    x = random.randrange(-BASE_W/2, BASE_W/2)
+    y = random.randrange(-BASE_W/2, BASE_W/2)
+    return x0+x, y0+y, z0
+
+def is_indestructable(protocol, x, y, z):
+    if x in (0, 511) or y in (0, 511) or z in (0, 63):
+        return True
+
+def get_intel_location(protocol, team_id):
+    import random, itertools
+    vxl = protocol.map
+    x0, y0, z0 = BASE_LOC[team_id]
+    for i in random_permutation(INTEL_W**2 * INTEL_H):
+        i, z = divmod(i, INTEL_H)
+        x, y = divmod(i, INTEL_W)
+        x, y, z = x0 - INTEL_W/2 + x, y0 - INTEL_W/2 + y, z0 - INTEL_H/2 + z
+        if vxl.get_solid(x, y, z) and not vxl.get_solid(x, y, z-1) \
+                                  and not vxl.get_solid(x, y, z-2): break
+    else:
+        x = random.randrange(x0-INTEL_W/2, x0+INTEL_W/2)
+        y = random.randrange(y0-INTEL_W/2, y0+INTEL_W/2)
+        z = random.randrange(z0-INTEL_H/2, z0+INTEL_H/2)
+    return x, y, z
+
+def random_permutation(n):
+    import random
+    p = next_prime(n)
+    g = random.randrange(1, p)
+    x = random.randrange(p)
+    for i in xrange(p):
+        if x < n: yield x
+        x = (x + g) % p
+
+def next_prime(k):
+    while not is_prime(k):
+        k += 1
+    return k
+
+def is_prime(k):
+    jj = 1
+    for j in xrange(2, k):
+        jj += 2*j - 1
+        if jj > k: break
+        if k % j == 0: return False
+    return k > 1
